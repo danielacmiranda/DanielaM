@@ -30,8 +30,12 @@
 #include <vector>
 #include <string>
 #include<fstream>
+#include<algorithm>
+#include<assert.h>
 
 using namespace std;
+
+const int m = 3;
 
 /* Node Declaration
  */
@@ -87,7 +91,7 @@ double calcJ(double mean, double sqrtt)
  *******************Main Contains Menu***************************************************************+
  */
  
-void buildLRStree( double vol,double k_s, int m, double T, int N, double strike, double cdsT, char typeoption, double r0, double s0, double phi0,double R,string dateT, int J1, vector<string>& read1, vector<double>& read2, vector<double>& read3);
+void buildLRStree( double vol,double k_s, double T, int N, double strike, double cdsT, char typeoption, double r0, double s0, double phi0,double R,string dateT, int J1, vector<string>& read1, vector<double>& read2, vector<double>& read3);
 
 int main()
 {
@@ -97,7 +101,8 @@ int main()
   string dateT= "20-09-2009";
   
   // declare and initialise tree paramaters (steps in tree)
-  int m=3,N=3,J1=0;
+  
+  int N = 3, J1 = 0;
   
   //declare and initialize type of the option (put or call)
   char typeoption='C';
@@ -123,13 +128,13 @@ int main()
 	//cout<<reading1<< "," <<reading2<< "," << reading3 << endl;
 	}
    
-   buildLRStree( vol, k_s, m,  T, N, strike,  cdsT,  typeoption,  r0, s0, phi0, R, dateT,J1, vecread1, vecread2, vecread3);
+   buildLRStree( vol, k_s, T, N, strike,  cdsT,  typeoption,  r0, s0, phi0, R, dateT,J1, vecread1, vecread2, vecread3);
    system("pause");
    return 0;
      
 }
 
-void buildLRStree( double vol,double k_s, int m, double T, int N, double strike, double cdsT, char typeoption, double r0, double s0, double phi0,double R,string dateT, int J1, vector<string>& read1, vector<double>& read2, vector<double>& read3){
+void buildLRStree( double vol,double k_s, double T, int N, double strike, double cdsT, char typeoption, double r0, double s0, double phi0,double R,string dateT, int J1, vector<string>& read1, vector<double>& read2, vector<double>& read3){
 	
 	// Declaration of local variables
 	double dt;
@@ -226,8 +231,8 @@ void buildLRStree( double vol,double k_s, int m, double T, int N, double strike,
 			    tree[i+1][j].phi[1]=phi_next;
 			    tree[i+1][j].visit=1;
 			}else{
-				tree[i+1][j].phi[0]= min(phi_next, tree[i+1][j].phi[0] );
-			    tree[i+1][j].phi[1]=max(phi_next,tree[i+1][j].phi[1]);
+				tree[i+1][j].phi[0] = min(phi_next, tree[i+1][j].phi[0] );
+			    tree[i+1][j].phi[1] = max(phi_next,tree[i+1][j].phi[1]);
 			}
 			
 			if(tree[i+1][j+1].visit==0){
@@ -299,14 +304,13 @@ void buildLRStree( double vol,double k_s, int m, double T, int N, double strike,
 	} //fecha i
 	
 	//Declaration:
-     int posT;
-     int pos;
+     int posT = -1;
      int u;
    vector<double> bondPrice;
    vector<double> defaultRisk;
    vector<double> defaultBondPrice;
-     double num;
-	 double den;
+     double num = 0.0;
+	 double den = 0.0;
 	 double delta;
 	 double fswaprate;
 	 double payoffpayer=0.0;
@@ -316,11 +320,11 @@ void buildLRStree( double vol,double k_s, int m, double T, int N, double strike,
 //	  vector<double> delta; //quaterly
 //	  
 //	  delta.push_back();
-    for(i=0; i < read1.size();i++){
+    for(unsigned int i=0; i < read1.size();i++){
     if(read1[i]==dateT)
       posT=i;
 	 }
-	 
+	 assert(posT>-1);
 	 cout<<posT<<endl;
 	 
 //-----------------Loop on the terminal nodes----------------------------
