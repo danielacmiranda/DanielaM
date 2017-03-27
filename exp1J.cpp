@@ -1,8 +1,8 @@
-/* INPUT: Parameter models
+/* INPUT:  Model parameters
 	
 	double vol; //volatitily
 	double k_s; //exogenous factor
-	(double lambda; elasticity assume lambda=1 ---> for now this is not an input)
+	(Proportional model assume elasticity parameter =1 )
 	
 	int m; //number of elements in the partition of phi
 	int N; //number of steps in the tree
@@ -13,7 +13,8 @@
 	
 	char typeoption;// call 'C' or put option 'P' respectively payer or receiver cdswaption
 	
-	double s0; //credit spread we assume s(0,t) flat initially
+	double r0; //initial interest rate assumed to be constant over the time
+	double s0; //initial credit spread we assume s(0,t) flat initially
 	double phi0; //accumulated variance
 	
 	int J1; // assume J (lrs paper) as constant
@@ -31,22 +32,23 @@
 
 using namespace std;
 
-//const int m = 3;
 
 /* Node Declaration
  */
 struct Nodes 
 {
-	int visit; //0- if i don't already visit the node , 1- if i already visit the node
-    double s; //default intensity or credit spread
-	double phi[2];	 // Array with two elements containing the minimum anda maximum of phi, which we calculate using the precedent generation
-    double *optionPrice;
-    double *probUp;
+	int visit; //0- if the node wasn't already visit , 1- if the node was visit
+    double s; //default intensity or instantaneous credit spread
+	double phi[2];// Array with two elements containing the minimum and maximum of phi, which we calculate using the precedent generation
+    double *optionPrice; // pointer to an array with the option price
+    double *probUp; // pointer to an array with the up probabilities
 };
 
 
 int signal (double Z);
+
 double calcJ(double mean, double sqrtt);
+
 void buildLRStree( double vol,double k_s,int m, int N, double strike, char typeoption, double r0, double s0, 
                   double phi0,double R, const string& dateT, int J1, const vector<string>& dates, const vector<int>& numdate,
 				  const vector<double>& discount, const vector<double>& survival);
@@ -58,13 +60,17 @@ void buildLRStree( double vol,double k_s,int m, int N, double strike, char typeo
  
 int main()
 {
-	// declare and initialise LRS parameters
-    double vol=0.2, k_s=0.02, strike= 0.01 , r0=0.04, phi0=0.0, s0=0.04, R=0.4;
-    string dateT= "20-09-2009";
-    // declare and initialise tree paramaters (steps in tree)
-    int N = 3,m=3, J1 = 0;
+	// declare and initialize the input parameters
+    double vol=0.94, k_s=-0.10, strike= 0.01 , r0=0.01, phi0=0.0, s0=0.02, R=0.4;
+    
+	string dateT= "20-12-2008";
+    
+    int m=3, N = 3, J1 = 0;
+    
     //declare and initialize type of the option (put or call)
     char typeoption='C';
+    
+    //extract the values of each column of the text file
     
     vector<string> dates;
     vector<int> daycount;
@@ -98,17 +104,29 @@ void buildLRStree( double vol,double k_s, int m, int N, double strike, char type
                    double s0, double phi0, double R,const string& dateT, int J1, const vector<string>& dates, 
 				   const vector<int>& numdate, const vector<double>& discount, const vector<double>& survival){
 	
-	// Declaration of local variables
-	double dt;
-	double sqrt_dt;
+		
+	int posT = -1; // posT = position on the txt file of the exercise date of the CDSwaption
+	 
+    for(unsigned int i=0; i < dates.size();i++){
+    	if(dates[i]==dateT)
+	 	posT=i;
+    }
+    
+    assert(posT>-1); //verify if in fact exist ---> debug
+    
+    /*Local variables
+	dt = time interval
+	sqrt_dt = square root of the time interval
+	*/
+	double dt=0.0;
+	double sqrt_dt=0.0;
 	
-	//Inicialization of local variables
-	dt=((numdate[numdate.size()-1]-numdate[0])/365.0)/N; //time steps
+	dt=((numdate[posT]-numdate[0])/365.0)/N; //time steps
+	
 	sqrt_dt= sqrt(dt);
-	cout<< "int dt " << dt <<endl;
-
-	//Dynamically allocating memory in each node
-	Nodes **tree = new Nodes *[N];
+	
+    //Dynamically allocating memory in each node
+	Nodes **tree = new Nodes *[N+1];
 	
 	for(int i=0; i<=N; i++)
 	tree[i] = new Nodes [i+1];
@@ -127,8 +145,9 @@ void buildLRStree( double vol,double k_s, int m, int N, double strike, char type
     }
  
     
- 
-    for(int i=0; i<=N-1;i++){
+ // ----> Calculating the values of s, phi and probUp for each node of the tree. Except the probUp on the terminal nodes(i=N)
+    
+	for(int i=0; i<=N-1;i++){
     	for(int j=0; j<=i;j++){
     		
    		    double mean1=0.0;
@@ -137,20 +156,21 @@ void buildLRStree( double vol,double k_s, int m, int N, double strike, char type
     		if(tree[i][j].phi[0]==tree[i][j].phi[1]){
     			    			
     			mean1= (k_s*(s0-tree[i][j].s) + tree[i][j].phi[0])/(vol * tree[i][j].s) - (vol/2);
-//			    J1=calcJ(mean1, sqrt_dt);
-//			    cout<< i << " " << j << " "<< "mean " << mean1 <<endl; 
-
-	            for(int k=0;k<m;k++)
+			    //J1=calcJ(mean1, sqrt_dt);
+//		        cout<< i << " " << j << " "<< "mean " << mean1 <<endl; 
+//              cout<< i << " " << j << " "<< "meanJ " << calcJ(mean1,sqrt_dt) <<endl; 
+//	            
+				for(int k=0;k<m;k++)
 	            tree[i][j].probUp[k]=(mean1*dt + (1-J1)*sqrt_dt)/(2*sqrt_dt); 
 	        
-	            // Insert the next values of r, if the nodes aren't visit yet
+	            // Insert the next values of s, if the nodes aren't visit yet
     		    if(tree[i+1][j].visit==0)
-			    tree[i+1][j].s= exp(log(tree[i][j].s) + vol * sqrt_dt); 
+			    tree[i+1][j].s= exp(log(tree[i][j].s) + vol*(J1+1) * sqrt_dt); 
 			
 			    if(tree[i+1][j+1].visit==0)	
-			    tree[i+1][j+1].s= exp(log(tree[i][j].s) - vol * sqrt_dt); 
+			    tree[i+1][j+1].s= exp(log(tree[i][j].s) + vol*(J1-1) * sqrt_dt); 
 			 		
-               //Calculate the successor of phi
+               //Calculate the next value of phi
     		    phi_next= tree[i][j].phi[0] + (pow(vol,2) * pow(tree[i][j].s,2)- 2*k_s*tree[i][j].phi[0])*dt;
     		
     		    if(tree[i+1][j].visit==0){
@@ -174,16 +194,16 @@ void buildLRStree( double vol,double k_s, int m, int N, double strike, char type
     		  			  	  
 			} else{
 				
-				double step=0.0;
+				double step=0.0; // step of the partition of phi
 				step= (tree[i][j].phi[1]-tree[i][j].phi[0])/(m-1);
     		    
-   		        vector<double> partPhi;
+   		        vector<double> partPhi; // partPhi= interval phi with m elemnts
 				partPhi.push_back(tree[i][j].phi[0]);
 				  
     		    for(int k = 1; k < m ; k++)
     		    partPhi.push_back(partPhi[k-1] + step);
-    		       
-    		    vector<double> mean;
+    		                	
+    		    vector<double> mean; 
     		    for(int k=0; k < m ; k++)
     		    mean.push_back((k_s * (s0 - tree[i][j].s) + partPhi[k] ) / (vol*tree[i][j].s) - (vol/2));
 			    
@@ -191,23 +211,26 @@ void buildLRStree( double vol,double k_s, int m, int N, double strike, char type
 //			    { J[k]= calcJ(mean[k], sqrt_dt);
 //			     // cout<< i << j<< "arrayJ " << J[k]<<endl;
 //    		 	}   
+//
+
+                 
     		    
     		    for(int k = 0; k< m ;k++)
 	            tree[i][j].probUp[k]=(mean[k]*dt + (1-J1)*sqrt_dt)/(2*sqrt_dt); 
 	        
-				// Insert the next values of r, if the nodes aren't visit yet
-				//ATENTION : different values in array J then many values of r ???? many insert an if
+				// Insert the next values of s, if the nodes aren't visit yet
+				//ATENTION : different values in array J then many values of s ????
     		    if( tree[i+1][j].visit==0)
-    		    tree[i+1][j].s= exp(log(tree[i][j].s) + vol * sqrt_dt); 
+    		    tree[i+1][j].s= exp(log(tree[i][j].s) + vol*(J1+1) * sqrt_dt); 
 			
 			    if(tree[i+1][j+1].visit==0)	
-			    tree[i+1][j+1].s= exp(log(tree[i][j].s) - vol* sqrt_dt); 
+			    tree[i+1][j+1].s= exp(log(tree[i][j].s) + vol*(J1-1)* sqrt_dt); 
 				
 				double sucPhi0=0.0;
                 double sucPhim=0.0;    
 
-    		    sucPhi0= partPhi[0]+ (pow(vol,2) * pow(tree[i][j].s,2) - 2 * k_s * partPhi[0] );
-    		    sucPhim= partPhi[m-1]+ (pow(vol,2)* pow(tree[i][j].s,2)- 2 * k_s * partPhi[m-1] );
+    		    sucPhi0= partPhi[0]+ (pow(vol,2) * pow(tree[i][j].s,2) - 2 * k_s * partPhi[0] )*dt;
+    		    sucPhim= partPhi[m-1]+ (pow(vol,2)* pow(tree[i][j].s,2)- 2 * k_s * partPhi[m-1] )*dt;
     		    
     		    if( tree[i+1][j].visit==0){
     		    	tree[i+1][j].phi[0]= sucPhi0;
@@ -234,77 +257,72 @@ void buildLRStree( double vol,double k_s, int m, int N, double strike, char type
 	
 	} //close i
 	
-	int posT = -1; //position exercise date of the CDSwaption
-	 
-    for(unsigned int i=0; i < dates.size();i++){
-    	if(dates[i]==dateT)
-	 	posT=i;
-    }
-    
-    assert(posT>-1); //verify if in fact exist ---> debug
-    
-    
-	 
-//-----------------Loop on the terminal nodes----------------------------
-         
-	for(int j=0; j<=N;j++){
-				
-		vector<double> bondPrice;
+	
+    vector<double> bondPrice; //B(t,T) default-free discount factor
 		
 		for(unsigned int k=posT; k < discount.size()-1;k++)
 		bondPrice.push_back(exp(-r0*((numdate[k+1]-numdate[posT])/365.0)));
-		
-		
-		vector<double> delta;
+				
+		vector<double> delta; // delta = interval of time between T_k,...,T_n
 		
 		for(unsigned int k=posT; k < numdate.size()-1;k++)
 		delta.push_back((numdate[k+1]-numdate[k])/365.0);
 		
-		
-	    if(tree[N][j].phi[0]==tree[N][j].phi[1]){
+
+	 
+/*---------------Loop on the terminal nodes----------------------------
+On the terminal nodes: we calculate the values of optionPrice in each node*/
+         
+	for(int j=0; j<=N;j++){
+				
+		if(tree[N][j].phi[0]==tree[N][j].phi[1]){
 	    		    		    	
-	        vector<double> defaultRisk;
+	        vector<double> defaultRisk; //D(t,T) default discount factor
 	                          	     	
 		    for(unsigned int k=posT; k < discount.size();k++)
 		    defaultRisk.push_back((survival[k]/survival[posT])*exp( ((1-exp(- k_s*((numdate[k]-numdate[posT])/365.0))) /k_s)* 
             (s0-tree[N][j].s)- 0.5*pow((1-exp(-k_s*((numdate[k]-numdate[posT])/365.0)))/k_s,2)* tree[N][j].phi[0] ));
+                    
             
-            
-			vector<double> defaultBondPrice;
+			vector<double> defaultBondPrice; // default zero coupon bond bar(B)(t,T)
 			
 			for( unsigned int k=0;k < bondPrice.size();k++)
 			defaultBondPrice.push_back(defaultRisk[k+1]*bondPrice[k]);
 			
+ 		    			
+			/* Calculate the forward swap rate (fswaprate) 
+			num = numerator of the forward swap rate formula
+			den= denominator of the forward swap rate formula
+			fswaprate = formula of the forward swap rate
+			*/
 			
-			//---forward swap rate--
 			double num = 0.0;
 			double den = 0.0;
 			
-			
+  	
 			for(unsigned int k=0; k < bondPrice.size();k++){
 				num+= defaultRisk[k]*bondPrice[k]-defaultBondPrice[k];
 	  	        den+= delta[k]*defaultBondPrice[k];	
 			}
+		
 			
-			double fswaprate=0.0;			
+			double fswaprate=0.0; 		
 			fswaprate=(1-R)*(num/den);
 			
-			double payoffpayer=0.0;
-	        double payoffreceiver=0.0;
+			
+			double sumdefaultBondPrice=0.0;
+	        for(unsigned int k=0; k< bondPrice.size();k++)
+			sumdefaultBondPrice +=defaultBondPrice[k];
 	        
-			if(typeoption=='C'){
-				for(unsigned int k=0; k< bondPrice.size();k++)
-				payoffpayer +=defaultBondPrice[k]* max( fswaprate - strike, 0.0);
+			if(typeoption=='C'){ // if is a payer CDSwaption
 				
 				for(unsigned int k=0; k<m ;k++)
-				tree[N][j].optionPrice[k]=payoffpayer;
-			
-	        }else{
-	        	for(unsigned int k=0; k< bondPrice.size() ;k++)
-	        	payoffreceiver+= defaultBondPrice[k]* max( strike - fswaprate , 0.0);
-	        	
+				tree[N][j].optionPrice[k]=sumdefaultBondPrice* max( fswaprate - strike, 0.0);
+
+	        }else{ // if is a receiver CDSwaption
+	        	        	
 				for(unsigned int k=0;k<m;k++)
-				tree[N][j].optionPrice[k]=payoffreceiver;
+				tree[N][j].optionPrice[k]=sumdefaultBondPrice* max( strike - fswaprate , 0.0);
 		    }
 		 			
 	    } else{
@@ -317,17 +335,20 @@ void buildLRStree( double vol,double k_s, int m, int N, double strike, char type
 				  
 		    for(int k = 1; k < m ; k++)
 		    partPhi.push_back(partPhi[k-1] + step);
-               		          
-            for(int k=0; k< m ;k++){
+		    
+         		          
+            for(int k=0; k< m ;k++){ // for each value of the partition of phi
             	vector<double> defaultRisk;
-				         	
-            	for(int u=posT;u < discount.size()-1;u++)
-            	defaultRisk.push_back((survival[u]/survival[posT])*exp( ((1-exp(- k_s*((numdate[u]-numdate[posT])/365.0))) /k_s)*
-                (s0-tree[N][j].s)- 0.5*pow((1-exp(-k_s*((numdate[u+1]-numdate[posT])/365.0)))/k_s,2)* partPhi[k] ));
-            
+     	        
+            	
+				for(int u=posT ; u < discount.size();u++)
+				defaultRisk.push_back((survival[u]/survival[posT])*exp( ((1-exp(- k_s*((numdate[u]-numdate[posT])/365.0))) /k_s)*
+                (s0-tree[N][j].s)- 0.5*pow((1-exp(-k_s*((numdate[u]-numdate[posT])/365.0)))/k_s,2)* partPhi[k] ));
+                        
+            	
 			    vector<double> defaultBondPrice;
 			    
-				for(int u=0;u<bondPrice.size();u++)
+				for(unsigned int u=0;u<bondPrice.size();u++)
 	            defaultBondPrice.push_back(defaultRisk[u+1]*bondPrice[u]); 
 	  	        	  
 	            //---forward swap rate--
@@ -342,17 +363,17 @@ void buildLRStree( double vol,double k_s, int m, int N, double strike, char type
 	            double fswaprate=0.0;
 	            fswaprate=(1-R)*(num/den);
 	            
-	            double payoffpayer=0.0;
-	            double payoffreceiver=0.0;
-	            for(int u=0; u< bondPrice.size() ;u++){
-	            	payoffpayer += defaultBondPrice[u]* max( fswaprate - strike, 0.0);
-	            	payoffreceiver+= defaultBondPrice[u]* max( strike - fswaprate , 0.0);
-	            }
+	            
+	            double sumdefaultBondPrice=0.0;
+	            
+	            for(unsigned int u=0; u< defaultBondPrice.size();u++)
+			    sumdefaultBondPrice +=defaultBondPrice[u];
 	            
                 if(typeoption=='C')
-                tree[N][j].optionPrice[k]=payoffpayer;
+                tree[N][j].optionPrice[k]=sumdefaultBondPrice* max( fswaprate - strike, 0.0);
 				else
-				tree[N][j].optionPrice[k]=payoffreceiver;
+				tree[N][j].optionPrice[k]=sumdefaultBondPrice* max( strike - fswaprate , 0.0);
+				
 		    }	
 			
     			
@@ -367,11 +388,12 @@ void buildLRStree( double vol,double k_s, int m, int N, double strike, char type
     for( int i=N-1; i>=0;i--){
 	    for( int j=0; j<=i; j++)
        {
-       	     	
+  	 	         
        	if(tree[i][j].phi[0]==tree[i][j].phi[1]){
-       	  for(int k=0;k<m;k++)
-	      tree[i][j].optionPrice[k]= (tree[i][j].probUp[k]*tree[i+1][j].optionPrice[0]+(1-tree[i][j].probUp[k])*
-          tree[i+1][j+1].optionPrice[m-1]) *exp(-tree[i][j].s*dt);       	   
+       			     		
+      		for(int k=0;k<m;k++)
+      		tree[i][j].optionPrice[k]= (tree[i][j].probUp[k]*tree[i+1][j].optionPrice[0]+(1-tree[i][j].probUp[k])*
+            tree[i+1][j+1].optionPrice[0]) *exp(-tree[i][j].s*dt);       	   
 		  
 		} else{
 						
@@ -386,8 +408,9 @@ void buildLRStree( double vol,double k_s, int m, int N, double strike, char type
     		
     		vector <double> sucPhi;
     		for(int k=0;k<m;k++)
-    		sucPhi.push_back(partPhi[k]+ (pow(vol,2) * pow(tree[i][j].s,2)- 2 * k_s * partPhi[k] ));
-    		
+			sucPhi.push_back(partPhi[k]+ (pow(vol,2) * pow(tree[i][j].s,2)- 2 * k_s * partPhi[k] )*dt);
+			
+			   	    		
     		double step2=0.0;          
 			step2= (tree[i+1][j].phi[1]-tree[i+1][j].phi[0])/(m-1);
 			
@@ -396,7 +419,8 @@ void buildLRStree( double vol,double k_s, int m, int N, double strike, char type
 				  
 		    for(int k = 1; k < m ; k++)
 		    partPhi2.push_back(partPhi2[k-1] + step2);
-    		
+			
+			
     		double step3=0.0;
     		step3= (tree[i+1][j+1].phi[1]-tree[i+1][j+1].phi[0])/(m-1);
 
@@ -404,15 +428,18 @@ void buildLRStree( double vol,double k_s, int m, int N, double strike, char type
 			partPhi3.push_back(tree[i+1][j+1].phi[0]);
 			
     		for( int k = 1; k < m ; k++)
-    		partPhi3.push_back(partPhi3[k-1] + step2);
-    							
-    		for(int k=0;k<m;k++){
+    		partPhi3.push_back(partPhi3[k-1] + step3);
+			
+    						
+    		for(int k=0;k<m;k++){ //Interpolation.................................
+			                   
+    			
+				double gup=0.0;
+                double gdown=0.0;
     			
     			if( (sucPhi[k] < partPhi2[k]) && (sucPhi[k] > partPhi3[k])){
-				//Interpolation.................................
-			    double gup=0.0;
-                double gdown=0.0;
-                
+    				
+    				
 				gup=tree[i+1][j].optionPrice[k-1] + (sucPhi[k]-partPhi2[k-1])/(partPhi2[k]-partPhi2[k-1] ) *
 				 (tree[i+1][j].optionPrice[k]-tree[i+1][j].optionPrice[k-1]);
 				 
@@ -425,8 +452,7 @@ void buildLRStree( double vol,double k_s, int m, int N, double strike, char type
 			    
 			          
 		       if((sucPhi[k] > partPhi3[k]) && !(sucPhi[k] < partPhi2[k])){
-		       	
-		       	double gdown=0.0;
+		       	 
                 gdown=tree[i+1][j+1].optionPrice[k] + (sucPhi[k]-partPhi3[k])/(partPhi3[k+1]-partPhi3[k] ) *
 				 (tree[i+1][j+1].optionPrice[k+1]-tree[i+1][j+1].optionPrice[k]);
 
@@ -437,7 +463,6 @@ void buildLRStree( double vol,double k_s, int m, int N, double strike, char type
 			    
 			    if((sucPhi[k] < partPhi2[k])&& !(sucPhi[k] > partPhi3[k])){ 
 			    
-			    double gup;
 			    gup=tree[i+1][j].optionPrice[k-1] + (sucPhi[k]-partPhi2[k-1])/(partPhi2[k]-partPhi2[k-1] ) * 
 				(tree[i+1][j].optionPrice[k]-tree[i+1][j].optionPrice[k-1]);
 				
@@ -453,13 +478,13 @@ void buildLRStree( double vol,double k_s, int m, int N, double strike, char type
   	
   	for( int i=0 ; i<=N ; i++){
   		for( int j=0;j<=i;j++){
-  			 cout<< i <<" "<< j << " "<<" rate "<< tree[i][j].s<< endl;
+  			 cout<< i <<" "<< j << " "<<" dspread "<< tree[i][j].s<< endl;
              cout <<i<<" "<< j << " "<<" phi0 "<<  tree[i][j].phi[0]<< endl;
              cout <<i<<" "<< j << " "<<" phi1 "<< tree[i][j].phi[1]<< endl;
                  
   	        for(int k=0;k<m;k++){
-    	        //cout <<i<<" "<< j << " "<< tree[i][j].probUp[k]<< endl;
-  	        	cout <<i<<" "<< j << " "<< tree[i][j].optionPrice[k]<< endl;
+    	        cout <<i<<" "<< j << " prob "<< tree[i][j].probUp[k]<< endl;
+  	        	cout <<i<<" "<< j << " "<< "optionPrice "<<tree[i][j].optionPrice[k]<< endl;
 			  }
   	       
         }
@@ -473,9 +498,8 @@ int signal ( double Z){
 	
 	int result;
 	
-	if(Z>0)
-	{
-		result=1;
+	if(Z>0){
+	result=1;
 	} else if(Z<0)
 	{
 		result=-1;
@@ -497,11 +521,12 @@ double calcJ(double mean, double sqrtt)
 	
 	Z= floor(mean*sqrtt);
 	
-	if ( Z % 2 == 0){
-		J=signal(Z)*Z;
-	} else{
-		J=signal(Z)*abs(Z) +1;
-	}
+	if ( Z % 2 == 0)
+	J=signal(Z)*Z;
+	
+	else
+	J=signal(Z)*abs(Z) +1;
+	
 	
 	return J; 
 		
